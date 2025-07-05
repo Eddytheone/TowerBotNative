@@ -134,9 +134,9 @@ if not TESS_PATH:
 pytesseract.pytesseract.tesseract_cmd = TESS_PATH
 
 def ensure_app_running():
-    """Ensure the macOS process 'The Tower' is running."""
+    """Ensure the game process is running on macOS."""
     for proc in psutil.process_iter(['name']):
-        if proc.info['name'] == 'The Tower':
+        if proc.info['name'] in ('The Tower', 'TheTower'):
             return
     raise SystemExit("[FATAL] 'The Tower' process not found")
 
