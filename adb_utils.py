@@ -5,6 +5,15 @@
 import psutil
 from PIL import Image
 
+# Optional Quartz import for background clicks on macOS
+try:  # Quartz is only available on macOS with PyObjC installed
+    import Quartz
+    _HAS_QUARTZ = True
+except Exception as e:  # noqa: PIE786 - broad except ok for optional dep
+    Quartz = None
+    _QUARTZ_ERROR = e
+    _HAS_QUARTZ = False
+
 try:  # pyautogui needs a display; allow import failure in headless envs
     import pyautogui  # type: ignore
     _HAS_PYAUTOGUI = True
@@ -14,20 +23,20 @@ except Exception as e:  # noqa: PIE786 - broad except ok for optional dep
     _HAS_PYAUTOGUI = False
 
 
-def ensure_app_running():
-    """Ensure the game process is running on macOS.
-
-    In testing environments the process may not exist. Instead of raising a
-    fatal error, simply return False when the process is missing so callers can
-    decide how to proceed.
-    """
-    for proc in psutil.process_iter(['name', 'exe', 'cmdline']):
+def _get_app_pid() -> int | None:
+    """Return the process ID of the game if running, otherwise ``None``."""
+    for proc in psutil.process_iter(['pid', 'name', 'exe', 'cmdline']):
         name = (proc.info.get('name') or '').lower()
         exe = (proc.info.get('exe') or '').lower()
         cmd = ' '.join(proc.info.get('cmdline') or []).lower()
         if 'tower' in name or 'tower' in exe or 'tower' in cmd:
-            return True
-    return False
+            return proc.info['pid']
+    return None
+
+
+def ensure_app_running() -> bool:
+    """Return ``True`` if the game process is running on macOS."""
+    return _get_app_pid() is not None
 
 
 def mac_screencap() -> Image.Image:
@@ -42,10 +51,20 @@ def mac_screencap() -> Image.Image:
 
 
 def mac_tap(x: int, y: int):
-    """Simulate a tap/click at the given coordinates.
-
-    On headless systems this is a no-op.
-    """
+    """Simulate a tap/click at ``(x, y)`` without moving the visible cursor."""
+    if _HAS_QUARTZ:
+        pid = _get_app_pid()
+        if pid is not None:
+            for ev in (Quartz.kCGEventLeftMouseDown, Quartz.kCGEventLeftMouseUp):
+                event = Quartz.CGEventCreateMouseEvent(
+                    None, ev, (x, y), Quartz.kCGMouseButtonLeft
+                )
+                Quartz.CGEventSetIntegerValueField(
+                    event, Quartz.kCGEventTargetUnixProcessID, pid
+                )
+                Quartz.CGEventPost(Quartz.kCGHIDEventTap, event)
+                Quartz.CFRelease(event)
+            return
     if _HAS_PYAUTOGUI:
         pyautogui.click(x, y)  # type: ignore[arg-type]
 

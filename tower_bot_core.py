@@ -35,6 +35,13 @@ except Exception as e:  # noqa: PIE786 - broad except ok for optional dep
     pyautogui = None
     _PYAUTO_ERROR = e
     _HAS_PYAUTOGUI = False
+try:  # Quartz for background clicks on macOS
+    import Quartz
+    _HAS_QUARTZ = True
+except Exception as e:  # noqa: PIE786
+    Quartz = None
+    _QUARTZ_ERROR = e
+    _HAS_QUARTZ = False
 import re
 from dataclasses import dataclass, field
 from enum import Enum
@@ -140,19 +147,23 @@ if TESS_PATH:
 else:
     print("[WARN] tesseract not found – OCR functions will return empty strings")
 
+def _get_app_pid() -> int | None:
+    """Return the process ID of the game if running, otherwise ``None``."""
+    for proc in psutil.process_iter(['pid', 'name', 'exe', 'cmdline']):
+        name = (proc.info.get('name') or '').lower()
+        exe = (proc.info.get('exe') or '').lower()
+        cmd = ' '.join(proc.info.get('cmdline') or []).lower()
+        if 'tower' in name or 'tower' in exe or 'tower' in cmd:
+            return proc.info['pid']
+    return None
+
 def ensure_app_running():
     """Check if the game process is running on macOS.
 
     Returns ``True`` when found, ``False`` otherwise. The previous behaviour was
     to terminate the program which made testing difficult.
     """
-    for proc in psutil.process_iter(['name', 'exe', 'cmdline']):
-        name = (proc.info.get('name') or '').lower()
-        exe = (proc.info.get('exe') or '').lower()
-        cmd = ' '.join(proc.info.get('cmdline') or []).lower()
-        if 'tower' in name or 'tower' in exe or 'tower' in cmd:
-            return True
-    return False
+    return _get_app_pid() is not None
 
 def mac_screencap() -> Image.Image:
     """Capture the current screen and return a PIL Image.
@@ -165,10 +176,20 @@ def mac_screencap() -> Image.Image:
     return Image.new("RGB", (1280, 720))
 
 def mac_tap(x: int, y: int):
-    """Simulate a tap/click at the given coordinates.
-
-    No-op if ``pyautogui`` is unavailable.
-    """
+    """Simulate a tap/click at ``(x, y)`` without moving the visible cursor."""
+    if _HAS_QUARTZ:
+        pid = _get_app_pid()
+        if pid is not None:
+            for ev in (Quartz.kCGEventLeftMouseDown, Quartz.kCGEventLeftMouseUp):
+                event = Quartz.CGEventCreateMouseEvent(
+                    None, ev, (x, y), Quartz.kCGMouseButtonLeft
+                )
+                Quartz.CGEventSetIntegerValueField(
+                    event, Quartz.kCGEventTargetUnixProcessID, pid
+                )
+                Quartz.CGEventPost(Quartz.kCGHIDEventTap, event)
+                Quartz.CFRelease(event)
+            return
     if _HAS_PYAUTOGUI:
         pyautogui.click(x, y)  # type: ignore[arg-type]
 
