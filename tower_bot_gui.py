@@ -41,6 +41,8 @@ class TowerBotGUI(tk.Tk):
 
         self._build_gui()
         self._update_wave_label()
+        # Global hotkey to stop/start the bot
+        self.bind_all('<Control-Alt-s>', self._hotkey_toggle)
 
     def _build_gui(self):
         pad = {'padx': 5, 'pady': 2}
@@ -205,6 +207,10 @@ class TowerBotGUI(tk.Tk):
             self.bot.stop()
             self.cfg.running = False
             self.btn.config(text="Start")
+
+    def _hotkey_toggle(self, event=None):
+        """Toggle the bot via Ctrl+Alt+S."""
+        self._toggle()
 
     def _on_close(self):
         if self.cfg.running and not messagebox.askyesno("Quit", "Bot running. Quit anyway?"):

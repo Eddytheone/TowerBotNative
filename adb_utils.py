@@ -22,6 +22,9 @@ except Exception as e:  # noqa: PIE786 - broad except ok for optional dep
     _PYAUTO_ERROR = e
     _HAS_PYAUTOGUI = False
 
+# Screen scale factor for HiDPI displays (e.g. Retina)
+_SCREEN_SCALE: float = 1.0
+
 
 def _get_app_pid() -> int | None:
     """Return the process ID of the game if running, otherwise ``None``."""
@@ -45,19 +48,34 @@ def mac_screencap() -> Image.Image:
     Falls back to a 1×1 blank image if ``pyautogui`` is unavailable.
     """
     if _HAS_PYAUTOGUI:
-        return pyautogui.screenshot()  # type: ignore[arg-type]
+        img = pyautogui.screenshot()  # type: ignore[arg-type]
+        # Update screen scale on each capture in case of display changes
+        try:
+            w, h = pyautogui.size()  # type: ignore[attr-defined]
+            global _SCREEN_SCALE
+            if w and h:
+                scale_x = img.width / w
+                scale_y = img.height / h
+                scale = (scale_x + scale_y) / 2
+                if scale > 0:
+                    _SCREEN_SCALE = scale
+        except Exception:
+            pass
+        return img
     # Provide a dummy image with a typical screen size to keep cv2 happy
     return Image.new("RGB", (1280, 720))
 
 
 def mac_tap(x: int, y: int):
     """Simulate a tap/click at ``(x, y)`` without moving the visible cursor."""
+    scale = _SCREEN_SCALE or 1.0
+    xs, ys = int(x / scale), int(y / scale)
     if _HAS_QUARTZ:
         pid = _get_app_pid()
         if pid is not None:
             for ev in (Quartz.kCGEventLeftMouseDown, Quartz.kCGEventLeftMouseUp):
                 event = Quartz.CGEventCreateMouseEvent(
-                    None, ev, (x, y), Quartz.kCGMouseButtonLeft
+                    None, ev, (xs, ys), Quartz.kCGMouseButtonLeft
                 )
                 Quartz.CGEventSetIntegerValueField(
                     event, Quartz.kCGEventTargetUnixProcessID, pid
@@ -66,7 +84,7 @@ def mac_tap(x: int, y: int):
                 Quartz.CFRelease(event)
             return
     if _HAS_PYAUTOGUI:
-        pyautogui.click(x, y)  # type: ignore[arg-type]
+        pyautogui.click(xs, ys)  # type: ignore[arg-type]
 
 
 # Backwards compatibility for modules still importing old names
