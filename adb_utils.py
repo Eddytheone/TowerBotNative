@@ -21,8 +21,11 @@ def ensure_app_running():
     fatal error, simply return False when the process is missing so callers can
     decide how to proceed.
     """
-    for proc in psutil.process_iter(['name']):
-        if proc.info['name'] in ('The Tower', 'TheTower'):
+    for proc in psutil.process_iter(['name', 'exe', 'cmdline']):
+        name = (proc.info.get('name') or '').lower()
+        exe = (proc.info.get('exe') or '').lower()
+        cmd = ' '.join(proc.info.get('cmdline') or []).lower()
+        if 'tower' in name or 'tower' in exe or 'tower' in cmd:
             return True
     return False
 
