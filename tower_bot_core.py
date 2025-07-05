@@ -146,8 +146,11 @@ def ensure_app_running():
     Returns ``True`` when found, ``False`` otherwise. The previous behaviour was
     to terminate the program which made testing difficult.
     """
-    for proc in psutil.process_iter(['name']):
-        if proc.info['name'] in ('The Tower', 'TheTower'):
+    for proc in psutil.process_iter(['name', 'exe', 'cmdline']):
+        name = (proc.info.get('name') or '').lower()
+        exe = (proc.info.get('exe') or '').lower()
+        cmd = ' '.join(proc.info.get('cmdline') or []).lower()
+        if 'tower' in name or 'tower' in exe or 'tower' in cmd:
             return True
     return False
 
