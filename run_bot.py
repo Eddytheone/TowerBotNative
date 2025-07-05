@@ -1,5 +1,6 @@
 # run_bot.py
 
+import time
 from engine import BotConfig, TowerBot, load_regions
 
 if __name__ == "__main__":

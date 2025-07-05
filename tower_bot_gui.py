@@ -20,7 +20,7 @@ from PIL import Image, ImageTk
 
 from config import REGION_FILE
 from engine import BotConfig, TowerBot, load_regions
-from adb_utils import adb_screencap, ensure_adb_connected
+from adb_utils import mac_screencap, ensure_app_running
 
 
 class TowerBotGUI(tk.Tk):
@@ -216,8 +216,8 @@ class TowerBotGUI(tk.Tk):
         self._capture_attr = attr
         self._capture_coords.clear()
         try:
-            ensure_adb_connected()
-            img_full = adb_screencap()
+            ensure_app_running()
+            img_full = mac_screencap()
         except Exception as e:
             messagebox.showerror("ADB Error", f"{e}")
             return

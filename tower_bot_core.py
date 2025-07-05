@@ -24,13 +24,13 @@ Date:   09 May 2025
 """
 from __future__ import annotations
 import json
-import subprocess
 import shutil
 import threading
 import time
+import psutil
+import pyautogui
 import re
 from dataclasses import dataclass, field
-from io import BytesIO
 from enum import Enum
 from pathlib import Path
 from typing import List, Tuple, Dict, Optional
@@ -126,49 +126,36 @@ cfg = BotConfig()
 load_regions(cfg)
 
 # ──────────────────────────────────────────────────────────────
-# ADB & Tesseract Setup
+# macOS & Tesseract Setup
 # ──────────────────────────────────────────────────────────────
-ADB_PATH = "/opt/homebrew/bin/adb"
 TESS_PATH = shutil.which("tesseract") or shutil.which("/opt/homebrew/bin/tesseract")
-if not Path(ADB_PATH).exists():
-    raise SystemExit(f"[FATAL] adb not found at {ADB_PATH}")
 if not TESS_PATH:
     raise SystemExit("[FATAL] tesseract not found. Install via `brew install tesseract`")
 pytesseract.pytesseract.tesseract_cmd = TESS_PATH
 
-def ensure_adb_connected():
-    """Ensure adb is connected to BlueStacks on 127.0.0.1:5555."""
-    try:
-        subprocess.run(
-            [ADB_PATH, "connect", "127.0.0.1:5555"],
-            check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-        )
-        devs = subprocess.check_output([ADB_PATH, "devices"]).decode()
-        if "127.0.0.1:5555" not in devs or "device" not in devs:
-            raise RuntimeError("ADB device not ready")
-    except Exception as e:
-        raise SystemExit(f"[FATAL] ADB connection failed: {e}")
+def ensure_app_running():
+    """Ensure the macOS process 'The Tower' is running."""
+    for proc in psutil.process_iter(['name']):
+        if proc.info['name'] == 'The Tower':
+            return
+    raise SystemExit("[FATAL] 'The Tower' process not found")
 
-# Verify connection at startup
-ensure_adb_connected()
+def mac_screencap() -> Image.Image:
+    """Capture the current screen and return a PIL Image."""
+    return pyautogui.screenshot()
+
+def mac_tap(x: int, y: int):
+    """Simulate a tap/click at the given coordinates."""
+    pyautogui.click(x, y)
+
+# Verify the game is running at startup
+ensure_app_running()
 
 # ──────────────────────────────────────────────────────────────
 # Helper Functions
 # ──────────────────────────────────────────────────────────────
-def adb_screencap() -> Image.Image:
-    """Capture screen via ADB and return a PIL Image."""
-    try:
-        proc = subprocess.run(
-            [ADB_PATH, '-s', '127.0.0.1:5555', 'exec-out', 'screencap', '-p'],
-            check=True, stdout=subprocess.PIPE
-        )
-        return Image.open(BytesIO(proc.stdout))
-    except:
-        raw = subprocess.check_output(
-            [ADB_PATH, '-s', '127.0.0.1:5555', 'shell', 'screencap', '-p']
-        )
-        raw = raw.replace(b"\r\r\n", b"\n").replace(b"\r\n", b"\n")
-        return Image.open(BytesIO(raw))
+# Backwards compatibility for legacy imports
+adb_screencap = mac_screencap
 
 def ocr_text(img: Image.Image,
              region: Tuple[int,int,int,int],
@@ -237,37 +224,25 @@ class TowerBot:
     def _handle_perk_selection(self, img: Image.Image):
         # 1) Tap the NEW PERK button
         x,y,w,h = self.cfg.new_perk_region
-        subprocess.run([
-            ADB_PATH, '-s', '127.0.0.1:5555',
-            'shell', 'input', 'tap',
-            str(x+w//2), str(y+h//2)
-        ])
+        mac_tap(x+w//2, y+h//2)
         time.sleep(0.5)
-        img2 = adb_screencap()
+        img2 = mac_screencap()
         # 2) Choose first matching perk by priority
         for key in self.cfg.perk_priority:
             for reg in (self.cfg.perk1_region, self.cfg.perk2_region, self.cfg.perk3_region, self.cfg.perk4_region):
                 if key in ocr_text(img2, reg)[0]:
                     x2,y2,w2,h2 = reg
-                    subprocess.run([
-                        ADB_PATH, '-s', '127.0.0.1:5555',
-                        'shell', 'input', 'tap',
-                        str(x2+w2//2), str(y2+h2//2)
-                    ])
+                    mac_tap(x2+w2//2, y2+h2//2)
                     return
         # Fallback: tap first option
         x2,y2,w2,h2 = self.cfg.perk1_region
-        subprocess.run([
-            ADB_PATH, '-s', '127.0.0.1:5555',
-            'shell', 'input', 'tap',
-            str(x2+w2//2), str(y2+h2//2)
-        ])
+        mac_tap(x2+w2//2, y2+h2//2)
 
     def _loop(self):
         while not self._stop.is_set():
             now = time.perf_counter()
-            ensure_adb_connected()
-            img = adb_screencap()
+            ensure_app_running()
+            img = mac_screencap()
 
             # Suspend other actions if selecting perks
             if self.cfg.state == BotState.PERK_SELECTING:
@@ -293,11 +268,8 @@ class TowerBot:
                     text, dt = ocr_text(img, reg, whitelist="retry ")
                     if "retry" in text and can_act(self.cfg, 'retry'):
                         self._dbg(f"Retry detected ({dt:.1f} ms)")
-                        subprocess.run([
-                            ADB_PATH, '-s', '127.0.0.1:5555',
-                            'shell', 'input', 'tap', '530', '2420'
-                        ])
-                        img = adb_screencap()
+                        mac_tap(530, 2420)
+                        img = mac_screencap()
                         break
 
             # 3) Defence tab
@@ -308,11 +280,8 @@ class TowerBot:
                 active = "defense upgrades" in text
                 self._dbg(f"Defence Active? {active} ({dt:.1f} ms)")
                 if not active and can_act(self.cfg, 'def'):
-                    subprocess.run([
-                        ADB_PATH, '-s', '127.0.0.1:5555',
-                        'shell', 'input', 'tap', '530', '2420'
-                    ])
-                    img = adb_screencap()
+                    mac_tap(530, 2420)
+                    img = mac_screencap()
 
             # 4) Purchases via white-pixel detection
             if active and now >= self._next['upg']:
@@ -322,21 +291,13 @@ class TowerBot:
                         and region_has_white(img, self.cfg.health_region)):
                     self._dbg("Health Up available")
                     x,y,w,h = self.cfg.health_region
-                    subprocess.run([
-                        ADB_PATH, '-s', '127.0.0.1:5555',
-                        'shell', 'input', 'tap',
-                        str(x+w//2), str(y+h//2)
-                    ])
+                    mac_tap(x+w//2, y+h//2)
                 if (self.cfg.abs_def_enabled and self.cfg.wave_number < self.cfg.abs_def_stop
                         and can_act(self.cfg, 'abs_def')
                         and region_has_white(img, self.cfg.abs_def_region)):
                     self._dbg("AbsDef Up available")
                     x,y,w,h = self.cfg.abs_def_region
-                    subprocess.run([
-                        ADB_PATH, '-s', '127.0.0.1:5555',
-                        'shell', 'input', 'tap',
-                        str(x+w//2), str(y+h//2)
-                    ])
+                    mac_tap(x+w//2, y+h//2)
 
             # 5) Free gems claim
             if self.cfg.gems_enabled and now >= self._next['gems'] and can_act(self.cfg, 'gems'):
@@ -346,22 +307,14 @@ class TowerBot:
                 if "claim" in text:
                     self._dbg("Claim detected—tapping!")
                     x,y,w,h = self.cfg.claim_region
-                    subprocess.run([
-                        ADB_PATH, '-s', '127.0.0.1:5555',
-                        'shell', 'input', 'tap',
-                        str(x+w//2), str(y+h//2)
-                    ])
+                    mac_tap(x+w//2, y+h//2)
 
             # 6) Floating gem
             if self.cfg.float_enabled and now >= self._next['float'] and can_act(self.cfg, 'float'):
                 self._next['float'] = now + self.cfg.float_interval
                 x,y = self.cfg.float_gem_coord
                 self._dbg("Float Gem tap")
-                subprocess.run([
-                    ADB_PATH, '-s', '127.0.0.1:5555',
-                    'shell', 'input', 'tap',
-                    str(x), str(y)
-                ])
+                mac_tap(x, y)
 
             # 7) Detect NEW PERK trigger
             if self.cfg.perk_enabled and now >= self._next['perk']:
