@@ -9,9 +9,16 @@ from PIL import Image
 
 def ensure_app_running():
     """Ensure the game process is running on macOS."""
-    for proc in psutil.process_iter(['name']):
-        if proc.info['name'] in ('The Tower', 'TheTower'):
-            return
+    for proc in psutil.process_iter(['name', 'exe', 'cmdline']):
+        try:
+            for val in (proc.info.get('name', ''), proc.info.get('exe', '')):
+                if val and 'tower' in val.lower():
+                    return
+            for arg in proc.info.get('cmdline') or []:
+                if 'tower' in str(arg).lower():
+                    return
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            continue
     raise SystemExit("[FATAL] 'The Tower' process not found")
 
 
