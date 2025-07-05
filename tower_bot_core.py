@@ -28,7 +28,13 @@ import shutil
 import threading
 import time
 import psutil
-import pyautogui
+try:
+    import pyautogui  # type: ignore
+    _HAS_PYAUTOGUI = True
+except Exception as e:  # noqa: PIE786 - broad except ok for optional dep
+    pyautogui = None
+    _PYAUTO_ERROR = e
+    _HAS_PYAUTOGUI = False
 import re
 from dataclasses import dataclass, field
 from enum import Enum
@@ -129,26 +135,41 @@ load_regions(cfg)
 # macOS & Tesseract Setup
 # ──────────────────────────────────────────────────────────────
 TESS_PATH = shutil.which("tesseract") or shutil.which("/opt/homebrew/bin/tesseract")
-if not TESS_PATH:
-    raise SystemExit("[FATAL] tesseract not found. Install via `brew install tesseract`")
-pytesseract.pytesseract.tesseract_cmd = TESS_PATH
+if TESS_PATH:
+    pytesseract.pytesseract.tesseract_cmd = TESS_PATH
+else:
+    print("[WARN] tesseract not found – OCR functions will return empty strings")
 
 def ensure_app_running():
-    """Ensure the game process is running on macOS."""
+    """Check if the game process is running on macOS.
+
+    Returns ``True`` when found, ``False`` otherwise. The previous behaviour was
+    to terminate the program which made testing difficult.
+    """
     for proc in psutil.process_iter(['name']):
         if proc.info['name'] in ('The Tower', 'TheTower'):
-            return
-    raise SystemExit("[FATAL] 'The Tower' process not found")
+            return True
+    return False
 
 def mac_screencap() -> Image.Image:
-    """Capture the current screen and return a PIL Image."""
-    return pyautogui.screenshot()
+    """Capture the current screen and return a PIL Image.
+
+    Returns a 1×1 blank image if ``pyautogui`` is unavailable.
+    """
+    if _HAS_PYAUTOGUI:
+        return pyautogui.screenshot()  # type: ignore[arg-type]
+    # Provide a dummy image with a typical screen size to keep cv2 happy
+    return Image.new("RGB", (1280, 720))
 
 def mac_tap(x: int, y: int):
-    """Simulate a tap/click at the given coordinates."""
-    pyautogui.click(x, y)
+    """Simulate a tap/click at the given coordinates.
 
-# Verify the game is running at startup
+    No-op if ``pyautogui`` is unavailable.
+    """
+    if _HAS_PYAUTOGUI:
+        pyautogui.click(x, y)  # type: ignore[arg-type]
+
+# Verify the game is running at startup (optional during tests)
 ensure_app_running()
 
 # ──────────────────────────────────────────────────────────────
@@ -241,7 +262,8 @@ class TowerBot:
     def _loop(self):
         while not self._stop.is_set():
             now = time.perf_counter()
-            ensure_app_running()
+            if not ensure_app_running():
+                self._dbg("Warning: 'The Tower' process not found")
             img = mac_screencap()
 
             # Suspend other actions if selecting perks

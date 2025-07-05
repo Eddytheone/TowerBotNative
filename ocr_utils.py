@@ -25,7 +25,11 @@ def ocr_text(
     if whitelist:
         config += f" -c tessedit_char_whitelist={whitelist}"
     start = time.perf_counter()
-    txt = pytesseract.image_to_string(crop, config=config)
+    try:
+        txt = pytesseract.image_to_string(crop, config=config)
+    except pytesseract.TesseractNotFoundError:
+        # When Tesseract is missing, return empty text to avoid crashes
+        return "", 0.0
     elapsed = (time.perf_counter() - start) * 1000
     return txt.replace("\n"," ").lower().strip(), elapsed
 

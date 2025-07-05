@@ -116,6 +116,8 @@ for name in ("defence_region","claim_region","new_perk_region"):
 def cv_match(sub: np.ndarray, tpl: np.ndarray) -> float:
     """Resize tpl to sub’s size if needed, then return max NCC score."""
     h_sub, w_sub = sub.shape[:2]
+    if h_sub == 0 or w_sub == 0:
+        return 0.0
     h_tpl, w_tpl = tpl.shape[:2]
     if (h_sub, w_sub) != (h_tpl, w_tpl):
         tpl = cv2.resize(tpl, (w_sub, h_sub), interpolation=cv2.INTER_AREA)
@@ -184,7 +186,8 @@ class TowerBot:
 
     def _loop(self):
         load_regions(self.cfg)
-        ensure_app_running()
+        if not ensure_app_running():
+            self._dbg("Warning: 'The Tower' process not found; continuing anyway")
 
         while not self._stop.is_set():
             now  = time.perf_counter()
