@@ -12,7 +12,6 @@ All other interactions use OCR or direct‐tap coordinates.
 """
 from __future__ import annotations
 import json
-import subprocess
 import threading
 import time
 import re
@@ -26,7 +25,7 @@ import cv2
 from PIL import Image
 
 from config import REGION_FILE, DEFAULT_REGIONS, PERK_PRIORITY_DEFAULT
-from adb_utils import ensure_adb_connected, adb_screencap
+from adb_utils import ensure_app_running, mac_screencap, mac_tap
 from ocr_utils import ocr_text, region_has_white
 from debounce import can_act
 
@@ -176,10 +175,7 @@ class TowerBot:
             priority, idx, (x,y,w,h) = chosen
             cx, cy = x + w//2, y + h//2
             self._dbg(f"Selected perk '{priority}' in region {idx} → tapping", (cx, cy))
-            subprocess.run([
-                'adb','-s','127.0.0.1:5555','shell','input','tap',
-                str(cx), str(cy)
-            ])
+            mac_tap(cx, cy)
         else:
             self._dbg("No matching perk found")
 
@@ -188,11 +184,11 @@ class TowerBot:
 
     def _loop(self):
         load_regions(self.cfg)
-        ensure_adb_connected()
+        ensure_app_running()
 
         while not self._stop.is_set():
             now  = time.perf_counter()
-            img  = adb_screencap()
+            img  = mac_screencap()
             gray = cv2.cvtColor(np.array(img), cv2.COLOR_BGR2GRAY)
 
             # If in PERK_SELECTING state, only run perk handler
@@ -222,8 +218,7 @@ class TowerBot:
                         x,y,w,h = region
                         cx,cy = x+w//2, y+h//2
                         self._dbg("Retry → tapping", (cx,cy))
-                        subprocess.run(['adb','-s','127.0.0.1:5555','shell','input','tap',
-                                        str(cx),str(cy)])
+                        mac_tap(cx, cy)
                         break
 
             # 3) Defence Tab (CV + OCR fallback)
@@ -246,8 +241,7 @@ class TowerBot:
                 if not active and can_act(self.cfg,'def'):
                     xt,yt = self.cfg.def_tab_tap_coord
                     self._dbg("DefTab inactive → tapping", (xt,yt))
-                    subprocess.run(['adb','-s','127.0.0.1:5555','shell','input','tap',
-                                    str(xt),str(yt)])
+                    mac_tap(xt, yt)
                 else:
                     self._dbg("DefTab active, skipping tap")
 
@@ -261,8 +255,7 @@ class TowerBot:
                     x,y,w,h = self.cfg.health_region
                     cx,cy = x+w//2, y+h//2
                     self._dbg("Health → tapping", (cx,cy))
-                    subprocess.run(['adb','-s','127.0.0.1:5555','shell','input','tap',
-                                    str(cx),str(cy)])
+                    mac_tap(cx, cy)
 
                 if ( self.cfg.abs_def_enabled
                   and self.cfg.wave_number < self.cfg.abs_def_stop
@@ -270,8 +263,7 @@ class TowerBot:
                     x,y,w,h = self.cfg.abs_def_region
                     cx,cy = x+w//2, y+h//2
                     self._dbg("AbsDef → tapping", (cx,cy))
-                    subprocess.run(['adb','-s','127.0.0.1:5555','shell','input','tap',
-                                    str(cx),str(cy)])
+                    mac_tap(cx, cy)
 
             # 5) Float Gem tap
             if ( self.cfg.float_enabled
@@ -280,8 +272,7 @@ class TowerBot:
                 self._next['float'] = now + self.cfg.float_interval
                 x,y = self.cfg.float_gem_coord
                 self._dbg("FloatGem → tapping", (x,y))
-                subprocess.run(['adb','-s','127.0.0.1:5555','shell','input','tap',
-                                str(x),str(y)])
+                mac_tap(x, y)
 
             # 6) Claim Gems (CV + OCR fallback)
             if ( self.cfg.gems_enabled
@@ -298,15 +289,13 @@ class TowerBot:
                     if score >= 0.7:
                         cx,cy = x+w//2, y+h//2
                         self._dbg("Claim → tapping", (cx,cy))
-                        subprocess.run(['adb','-s','127.0.0.1:5555','shell','input','tap',
-                                        str(cx),str(cy)])
+                        mac_tap(cx, cy)
                 else:
                     txt,_ = ocr_text(img, self.cfg.claim_region)
                     if "claim" in txt.lower():
                         cx,cy = x+w//2, y+h//2
                         self._dbg("Claim OCR → tapping", (cx,cy))
-                        subprocess.run(['adb','-s','127.0.0.1:5555','shell','input','tap',
-                                        str(cx),str(cy)])
+                        mac_tap(cx, cy)
 
             # 7) New Perk detection (CV + OCR fallback)
             if ( self.cfg.perk_enabled
@@ -330,8 +319,7 @@ class TowerBot:
                 if triggered:
                     cx,cy = x+w//2, y+h//2
                     self._dbg("NEW PERK → tapping centre to open menu", (cx,cy))
-                    subprocess.run(['adb','-s','127.0.0.1:5555','shell','input','tap',
-                                    str(cx),str(cy)])
+                    mac_tap(cx, cy)
                     self._dbg("Switching to PERK_SELECTING state")
                     self.cfg.state = BotState.PERK_SELECTING
 
